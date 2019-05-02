@@ -85,7 +85,7 @@ def lambda_handler(event, context):
     new Vue({
         el: '#app',
         data: {
-            testCases: "GET, text=madam, response.type, shouldEqual, text/text\\nGET, text=banana, response.type, shouldEqual, application/json\\nGET, text=banana, response.body, shouldContain, banana\\nGET, text=banana, response.body, shouldEqual, banana is not a Palindrome",
+            testCases: "GET, text=madam, response.type, shouldEqual, text/text\\nGET, text=banana, response.body, shouldContain, banana\\nGET, text=banana, response.body, shouldEqual, banana is not a Palindrome\\nGET, text=banana, response.json.anotherResult, shouldEqual, Hey there\\nGET, text=banana, response.json.anotherResult, shouldContain, Hey ",
             url:"https://f9awomc0fj.execute-api.ap-southeast-1.amazonaws.com/default/isPalindrome",
             answer:""
         },
@@ -199,21 +199,32 @@ def lambda_handler(event, context):
                 targetStr = "headers['Content-Type']"
             elif(partsOfTest[2].lower() == "response.body"):
                 targetStr = "text"
+            elif(partsOfTest[2] and partsOfTest[2].lower().find("response.json") !=1 ):
+                targetStr = "json()"
             execReqStr = """requests.{method}(url="{url}?{parameter}").{responseTarget}""".format(
                 method=partsOfTest[0].lower(),
                 url=testUrl,
                 parameter=partsOfTest[1],
                 responseTarget=targetStr)
             execReq = str(eval(execReqStr))
+            finalRes = execReq.replace("'",'"').replace('"', '\\"')
+            if(targetStr == "json()"):
+                keys = ""
+                for key in partsOfTest[2].split(".")[2:]:
+                    keys +="[\"{key}\"]".format(key=key)
+                temp = "json.loads(\"{received}\"){keys}".format(
+                    received=finalRes, 
+                    keys=keys)
+                finalRes = eval(temp)
             # Define testMethod/operation
             if(partsOfTest[3].lower() == "shouldequal"):
                 opStr = "\"{received}\" == \"{testvalue}\"".format(
-                    received = execReq, 
+                    received = finalRes, 
                     testvalue=partsOfTest[4])
             elif(partsOfTest[3].lower() == "shouldcontain"):
                 if execReq: #to check if execReq is not None, to prevent exception
                     opStr = "\"{received}\".find('{testValue}') != -1".format(
-                        received = execReq,
+                        received = finalRes,
                         testValue=partsOfTest[4])
                 else:
                     opStr = "False"
