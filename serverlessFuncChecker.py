@@ -64,10 +64,10 @@ def lambda_handler(event, context):
                                 <div v-html="answer.htmlResults"></div>
                             </md-tab>
                             <md-tab id="tab-jsonResults" md-label="JSON results">
-                                <md-textarea v-model="answer.jsonResults" readonly></md-textarea>
+                                <md-textarea class="output-tab" v-model="answer.jsonResults" readonly></md-textarea>
                             </md-tab>
                             <md-tab id="tab-textResults" md-label="Text results">
-                                <md-textarea v-model="answer.textResults" readonly></md-textarea>
+                                <md-textarea class="output-tab" v-model="answer.textResults" readonly></md-textarea>
                             </md-tab>                            
                         </md-tabs>
                      </md-field>
@@ -121,11 +121,17 @@ def lambda_handler(event, context):
     .md-tabs{
         width:100%;
     }
-    .md-content{
-        min-height:200px
-    }
     .md-tabs-container .md-tab textarea{
         height:100%
+    }
+    .md-tab{
+        min-height:500px;
+    }
+    .md-content{
+        min-height:500px;
+    }
+    .output-tab{
+        max-height:400px !important;
     }
     .output-card > .md-card > .md-card-content > .md-field{
         padding-top: 0px;
