@@ -115,6 +115,9 @@ def lambda_handler(event, context):
     textarea {
         font-size: 1rem !important;
     }
+    .md-card-header{
+        padding-top: 0px;
+    }
     .md-tabs{
         width:100%;
     }
@@ -125,9 +128,6 @@ def lambda_handler(event, context):
         height:100%
     }
     .output-card > .md-card > .md-card-content > .md-field{
-        padding-top: 0px;
-    }
-    .md-card-header {
         padding-top: 0px;
     }
     .button {
@@ -173,7 +173,6 @@ def lambda_handler(event, context):
     </style>
     </html>
     """
-
     if method == 'GET':
         return {
             "statusCode": 200,
@@ -201,14 +200,15 @@ def lambda_handler(event, context):
                 targetStr = "text"
             elif(partsOfTest[2] and partsOfTest[2].lower().find("response.json") !=1 ):
                 targetStr = "json()"
-            execReqStr = """requests.{method}(url="{url}?{parameter}").{responseTarget}""".format(
+            execUrlStr = """requests.{method}(url="{url}?{parameter}")""".format(
                 method=partsOfTest[0].lower(),
                 url=testUrl,
-                parameter=partsOfTest[1],
-                responseTarget=targetStr)
-            execReq = str(eval(execReqStr))
+                parameter=partsOfTest[1])
+            urlResponse = eval(execUrlStr)
+            resStatusCode = urlResponse.status_code
+            execReq = str(eval("urlResponse."+targetStr))
             finalRes = execReq.replace("'",'"').replace('"', '\\"')
-            if(targetStr == "json()"):
+            if(targetStr == "json()" and resStatusCode == 200):
                 keys = ""
                 for key in partsOfTest[2].split(".")[2:]:
                     keys +="[\"{key}\"]".format(key=key)
@@ -232,8 +232,14 @@ def lambda_handler(event, context):
             print(execOpStr)
             execOp = str(eval(execOpStr))
             print(execOp)
-            jsonResponse["results"].append({"method": partsOfTest[0], "parameters": partsOfTest[1], "responseTarget": partsOfTest[2],
-                                            "testMethod": partsOfTest[3], "testValue": partsOfTest[4], "receivedValue": execReq, "correct": execOp})
+            jsonResponse["results"].append({"method": partsOfTest[0], 
+                                            "parameters": partsOfTest[1], 
+                                            "responseTarget": partsOfTest[2],
+                                            "testMethod": partsOfTest[3], 
+                                            "testValue": partsOfTest[4], 
+                                            "receivedValue": execReq, 
+                                            "statusCode":resStatusCode, 
+                                            "correct": execOp})
             print(jsonResponse)
         jsonResponseData = json.loads(json.dumps(jsonResponse))
         textResults = ""
@@ -249,32 +255,56 @@ def lambda_handler(event, context):
                 testMethodText = resultContent[i]["testMethod"]
                 testValueText = resultContent[i]["testValue"]
                 receivedValueText = resultContent[i]["receivedValue"]
+                statusCode = resultContent[i]["statusCode"]
                 correctText = resultContent[i]["correct"]
-                allTestCaseResult = (
-                    allTestCaseResult and (correctText == "True"))
+                allTestCaseResult = (allTestCaseResult and (correctText == "True"))
                 if correctText == "True":
-                    textResults = textResults + "\nHurray! You have passed the test case. {0} call with {1} and received {2} as {3} against the expected value of {4}.\n".format(
-                        methodText, parameterText, responseTargetText, testValueText, receivedValueText)
-                    textBackgroundColor = "#b2d8b2"
+                    textResults = textResults + ("\nHurray! You have passed the test case with"
+                                                "status code {statusCode}. {method} call with"
+                                                "{parameter} and received {responseTarget} as" 
+                                                "{receivedValue} against the expected value" 
+                                                "of {testValue}.\n").format(
+                                                    statusCode=statusCode,
+                                                    method=methodText, 
+                                                    parameter=parameterText, 
+                                                    responseTarget=responseTargetText, 
+                                                    receivedValue=receivedValueText,
+                                                    testValue=testValueText)
+                    textBackgroundColor = "#b2d8b2" #Green
                 else:
-                    textResults = textResults + "\nTest case failed try again! {0} call with {1} and received {2} as {3} against the expected value of {4}.\n".format(
-                        methodText, parameterText, responseTargetText, testValueText, receivedValueText)
-                    textBackgroundColor = "#ff9999"
+                    textResults = textResults + ("\nOh no! Test case failed with" 
+                                                "status code {statusCode}. {method} call with"
+                                                "{parameter} and received {responseTarget} as" 
+                                                "{receivedValue} against the expected value" 
+                                                "of {testValue}.\n").format(
+                                                    statusCode=statusCode,
+                                                    method=methodText, 
+                                                    parameter=parameterText, 
+                                                    responseTarget=responseTargetText, 
+                                                    receivedValue=receivedValueText,
+                                                    testValue=testValueText)
+                    textBackgroundColor = "#ff9999" #Red
                 tableContents = tableContents + """
-                <tr bgcolor={7}>
-                    <td>{0}</td>
-                    <td>{1}</td>
-                    <td>{2}</td>
-                    <td>{3}</td>
-                    <td>{4}</td>
-                    <td>{5}</td>
-                    <td>{6}</td>
+                <tr bgcolor={color}>
+                    <td>{method}</td>
+                    <td>{parameter}</td>
+                    <td>{responseTarget}</td>
+                    <td>{testMethod}</td>
+                    <td>{testValue}</td>
+                    <td>{receivedValue}</td>
+                    <td>{statusCode}</td>
+                    <td>{correct}</td>
                 </tr>
-                """.format(methodText, parameterText, responseTargetText, testMethodText, testValueText, receivedValueText, correctText, textBackgroundColor)
-            tableContents = """<span class="md-subheading">All tests passed: {0}</span><br/>""".format(
-                str(allTestCaseResult)) + tableContents
-        textResults = """All tests passed: {0}\n""".format(
-            allTestCaseResult) + textResults
+                """.format(method=methodText, parameter=parameterText, 
+                        responseTarget=responseTargetText, testMethod=testMethodText, 
+                        testValue=testValueText, receivedValue=receivedValueText, 
+                        statusCode=statusCode, correct=correctText, 
+                        color=textBackgroundColor)
+            tableContents = """<span class="md-subheading">
+                            All tests passed: {allPassed}</span><br/>""".format(
+                                allPassed=str(allTestCaseResult)) + tableContents
+        textResults = """All tests passed: {allPassed}\n""".format(
+                        allPassed=str(allTestCaseResult)) + textResults
         if not resultContent:
             textResults = "Your test is passing but something is incorrect..."
         htmlResults = """
@@ -294,6 +324,7 @@ def lambda_handler(event, context):
                                     <th>Test Method</th>
                                     <th>Test Value</th>
                                     <th>Received Value</th>
+                                    <th>Status Code</th>
                                     <th>Correct</th>
                                 </tr>
                             </thead>
