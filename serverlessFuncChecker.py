@@ -61,13 +61,13 @@ def lambda_handler(event, context):
                     <md-field>
                         <md-tabs>
                             <md-tab id="tab-htmlResults" md-label="HTML results">
-                                <div v-html="answer.htmlResults"></div>
+                                <div v-html="answer.htmlFeedback"></div>
                             </md-tab>
                             <md-tab id="tab-jsonResults" md-label="JSON results">
-                                <md-textarea class="output-tab" v-model="answer.jsonResults" readonly></md-textarea>
+                                <md-textarea class="output-tab" v-model="answer.jsonFeedback" readonly></md-textarea>
                             </md-tab>
                             <md-tab id="tab-textResults" md-label="Text results">
-                                <md-textarea class="output-tab" v-model="answer.textResults" readonly></md-textarea>
+                                <md-textarea class="output-tab" v-model="answer.textFeedback" readonly></md-textarea>
                             </md-tab>                            
                         </md-tabs>
                      </md-field>
@@ -98,7 +98,7 @@ def lambda_handler(event, context):
         'Accept': 'application/json',
         'Content-Type': 'application/json'
         },
-        body: JSON.stringify({testCases:this.testCases,url:this.url})
+        body: JSON.stringify({shown:{},editable:{0:this.url,1:this.testCases}, hidden:{}})
         }).then(response => {
             return response.json()
         }).then(data => {
@@ -191,8 +191,8 @@ def lambda_handler(event, context):
     if method == 'POST':
         bodyContent = event.get('body', {})
         parsedBodyContent = json.loads(bodyContent)
-        testUrl = parsedBodyContent["url"]
-        testCases = parsedBodyContent["testCases"].splitlines()
+        testUrl = parsedBodyContent["editable"]["0"]
+        testCases = parsedBodyContent["editable"]["1"].splitlines()
         jsonResponse = {"results": []}
         for oneTest in testCases:
             partsOfTest = oneTest.split(",")
@@ -358,8 +358,9 @@ def lambda_handler(event, context):
                 "Content-Type": "application/json",
             },
             "body":  json.dumps({
-                "jsonResults": json.dumps(jsonResponseData, indent=4, sort_keys=True),
-                "htmlResults": htmlResults,
-                "textResults": textResults
+                "isComplete":True,
+                "jsonFeedback": json.dumps(jsonResponseData, indent=4, sort_keys=True),
+                "htmlFeedback": htmlResults,
+                "textFeedback": textResults
             })
         }
