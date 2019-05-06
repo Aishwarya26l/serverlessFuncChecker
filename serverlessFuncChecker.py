@@ -7,10 +7,7 @@ import traceback
 import logging
 import doctest
 
-
-def lambda_handler(event, context):
-    method = event.get('httpMethod', {})
-
+def getIndexPage():
     indexPage = """
     <html>
     <head>
@@ -122,7 +119,7 @@ def lambda_handler(event, context):
         width:100%;
     }
     .md-tabs-container .md-tab textarea{
-        height:100%
+        height:100%;
     }
     .md-tab{
         min-height:500px;
@@ -131,7 +128,7 @@ def lambda_handler(event, context):
         min-height:500px;
     }
     .output-tab{
-        max-height:400px !important;
+        min-height:400px !important;
     }
     .output-card > .md-card > .md-card-content > .md-field{
         padding-top: 0px;
@@ -179,6 +176,168 @@ def lambda_handler(event, context):
     </style>
     </html>
     """
+    return indexPage
+    
+def exec_testcases(testCases,testUrl):
+    jsonResponse = {"results": []}
+    for oneTest in testCases:
+        partsOfTest = oneTest.split(",")
+        partsOfTest = list(map(str.strip, partsOfTest))
+        #method, parameters, responseTarget, testMethod, testValue
+        #GET, name=abc, response.type, shouldEqual, text/text
+        # Define responseTarget
+        if(partsOfTest[2].lower() == "response.type"):
+            targetStr = "headers['Content-Type']"
+        elif(partsOfTest[2].lower() == "response.body"):
+            targetStr = "text"
+        elif(partsOfTest[2] and partsOfTest[2].lower().find("response.json") !=1 ):
+            targetStr = "json()"
+        execUrlStr = """requests.{method}(url="{url}?{parameter}")""".format(
+            method=partsOfTest[0].lower(),
+            url=testUrl,
+            parameter=partsOfTest[1])
+        urlResponse = eval(execUrlStr)
+        resStatusCode = urlResponse.status_code
+        execReq = str(eval("urlResponse."+targetStr))
+        finalRes = execReq.replace("'",'"').replace('"', '\\"')
+        if(targetStr == "json()" and resStatusCode == 200):
+            keys = ""
+            for key in partsOfTest[2].split(".")[2:]:
+                keys +="[\"{key}\"]".format(key=key)
+            temp = "json.loads(\"{received}\"){keys}".format(
+                received=finalRes, 
+                keys=keys)
+            finalRes = eval(temp)
+        # Define testMethod/operation
+        if(partsOfTest[3].lower() == "shouldequal"):
+            opStr = "\"{received}\" == \"{testvalue}\"".format(
+                received = finalRes, 
+                testvalue=partsOfTest[4])
+        elif(partsOfTest[3].lower() == "shouldcontain"):
+            if execReq: #to check if execReq is not None, to prevent exception
+                opStr = "\"{received}\".find('{testValue}') != -1".format(
+                    received = finalRes,
+                    testValue=partsOfTest[4])
+            else:
+                opStr = "False"
+        execOpStr = """{operation}""".format(operation=opStr)
+        print(execOpStr)
+        execOp = str(eval(execOpStr))
+        print(execOp)
+        jsonResponse["results"].append({"method": partsOfTest[0], 
+                                        "parameters": partsOfTest[1], 
+                                        "responseTarget": partsOfTest[2],
+                                        "testMethod": partsOfTest[3], 
+                                        "testValue": partsOfTest[4], 
+                                        "receivedValue": execReq, 
+                                        "statusCode":resStatusCode, 
+                                        "correct": execOp})
+        print(jsonResponse)
+    return jsonResponse
+def calcFeedback(jsonResponse):
+    jsonResponseData = json.loads(json.dumps(jsonResponse))
+    resultContent = jsonResponseData.get('results')
+    textResults = ""
+    tableContents = ""
+    textBackgroundColor = "#ffffff"
+    allTestCaseResult = True
+    if resultContent:
+        for i in range(len(resultContent)):
+            methodText = resultContent[i]["method"]
+            parameterText = resultContent[i]["parameters"]
+            responseTargetText = resultContent[i]["responseTarget"]
+            testMethodText = resultContent[i]["testMethod"]
+            testValueText = resultContent[i]["testValue"]
+            receivedValueText = resultContent[i]["receivedValue"]
+            statusCode = resultContent[i]["statusCode"]
+            correctText = resultContent[i]["correct"]
+            allTestCaseResult = (allTestCaseResult and (correctText == "True"))
+            if correctText == "True":
+                textResults += ("\nHurray! You have passed the test case with ")
+                textBackgroundColor = "#b2d8b2" #Green
+            else:
+                textResults += ("\nOh no! Test case failed with") 
+                textBackgroundColor = "#ff9999" #Red
+            textResults += ("status code {statusCode}. {method} call with "
+                            "{parameter} and received {responseTarget} as " 
+                            "{receivedValue} against the expected value " 
+                            "of {testValue}.\n").format(
+                                statusCode=statusCode,
+                                method=methodText, 
+                                parameter=parameterText, 
+                                responseTarget=responseTargetText, 
+                                receivedValue=receivedValueText,
+                                testValue=testValueText)
+            tableContents = tableContents + """
+            <tr bgcolor={color}>
+                <td>{method}</td>
+                <td>{parameter}</td>
+                <td>{responseTarget}</td>
+                <td>{testMethod}</td>
+                <td>{testValue}</td>
+                <td>{receivedValue}</td>
+                <td>{statusCode}</td>
+                <td>{correct}</td>
+            </tr>
+            """.format(method=methodText, parameter=parameterText, 
+                    responseTarget=responseTargetText, testMethod=testMethodText, 
+                    testValue=testValueText, receivedValue=receivedValueText, 
+                    statusCode=statusCode, correct=correctText, 
+                    color=textBackgroundColor)
+    tableContents = ("<span class=\"md-subheading\">"
+                    "All tests passed:" 
+                    "{allPassed}</span><br/>").format(
+                            allPassed=str(allTestCaseResult)) + tableContents
+    textResults = ("All tests passed: {allPassed}\n").format(
+                    allPassed=str(allTestCaseResult)) + textResults
+    if not resultContent:
+        textResults = "Your test is passing but something is incorrect..."
+    htmlResults = """
+        <html>
+            <head>
+                <meta charset="utf-8">
+                <meta content="width=device-width,initial-scale=1,minimal-ui" name="viewport">
+            </head>
+            <body>
+                <div>
+                    <table>
+                         <thead>
+                            <tr>
+                                <th>Method</th>
+                                <th>Parameters</th>
+                                <th>Response Target</th>
+                                <th>Test Method</th>
+                                <th>Test Value</th>
+                                <th>Received Value</th>
+                                <th>Status Code</th>
+                                <th>Correct</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            {tableContents}
+                        </tbody>
+                    </table>
+                </div>
+            </body>
+            <style>
+            br {{
+                display:block;
+                content:"";
+                margin:1rem
+            }}
+            table{{
+                text-align:center
+            }}
+            </style>
+        </html>
+        """.format(tableContents=tableContents)
+    allFeedback = {"htmlFeedback": htmlResults, 
+                    "textFeedback": textResults, 
+                    "jsonFeedback": json.dumps(jsonResponseData, indent=4, sort_keys=True)}
+    return allFeedback
+def lambda_handler(event, context):
+    method = event.get('httpMethod', {})
+    indexPage = getIndexPage()
     if method == 'GET':
         return {
             "statusCode": 200,
@@ -189,169 +348,13 @@ def lambda_handler(event, context):
         }
 
     if method == 'POST':
-        bodyContent = event.get('body', {})
-        parsedBodyContent = json.loads(bodyContent)
+        parsedBodyContent = json.loads(event.get('body', {}))
         testUrl = parsedBodyContent["editable"]["0"]
         testCases = parsedBodyContent["editable"]["1"].splitlines()
-        jsonResponse = {"results": []}
-        for oneTest in testCases:
-            partsOfTest = oneTest.split(",")
-            partsOfTest = list(map(str.strip, partsOfTest))
-            #method, parameters, responseTarget, testMethod, testValue
-            #GET, name=abc, response.type, shouldEqual, text/text
-            # Define responseTarget
-            if(partsOfTest[2].lower() == "response.type"):
-                targetStr = "headers['Content-Type']"
-            elif(partsOfTest[2].lower() == "response.body"):
-                targetStr = "text"
-            elif(partsOfTest[2] and partsOfTest[2].lower().find("response.json") !=1 ):
-                targetStr = "json()"
-            execUrlStr = """requests.{method}(url="{url}?{parameter}")""".format(
-                method=partsOfTest[0].lower(),
-                url=testUrl,
-                parameter=partsOfTest[1])
-            urlResponse = eval(execUrlStr)
-            resStatusCode = urlResponse.status_code
-            execReq = str(eval("urlResponse."+targetStr))
-            finalRes = execReq.replace("'",'"').replace('"', '\\"')
-            if(targetStr == "json()" and resStatusCode == 200):
-                keys = ""
-                for key in partsOfTest[2].split(".")[2:]:
-                    keys +="[\"{key}\"]".format(key=key)
-                temp = "json.loads(\"{received}\"){keys}".format(
-                    received=finalRes, 
-                    keys=keys)
-                finalRes = eval(temp)
-            # Define testMethod/operation
-            if(partsOfTest[3].lower() == "shouldequal"):
-                opStr = "\"{received}\" == \"{testvalue}\"".format(
-                    received = finalRes, 
-                    testvalue=partsOfTest[4])
-            elif(partsOfTest[3].lower() == "shouldcontain"):
-                if execReq: #to check if execReq is not None, to prevent exception
-                    opStr = "\"{received}\".find('{testValue}') != -1".format(
-                        received = finalRes,
-                        testValue=partsOfTest[4])
-                else:
-                    opStr = "False"
-            execOpStr = """{operation}""".format(operation=opStr)
-            print(execOpStr)
-            execOp = str(eval(execOpStr))
-            print(execOp)
-            jsonResponse["results"].append({"method": partsOfTest[0], 
-                                            "parameters": partsOfTest[1], 
-                                            "responseTarget": partsOfTest[2],
-                                            "testMethod": partsOfTest[3], 
-                                            "testValue": partsOfTest[4], 
-                                            "receivedValue": execReq, 
-                                            "statusCode":resStatusCode, 
-                                            "correct": execOp})
-            print(jsonResponse)
-        jsonResponseData = json.loads(json.dumps(jsonResponse))
-        textResults = ""
-        resultContent = jsonResponseData.get('results')
-        tableContents = ""
-        textBackgroundColor = "#ffffff"
-        allTestCaseResult = True
-        if resultContent:
-            for i in range(len(resultContent)):
-                methodText = resultContent[i]["method"]
-                parameterText = resultContent[i]["parameters"]
-                responseTargetText = resultContent[i]["responseTarget"]
-                testMethodText = resultContent[i]["testMethod"]
-                testValueText = resultContent[i]["testValue"]
-                receivedValueText = resultContent[i]["receivedValue"]
-                statusCode = resultContent[i]["statusCode"]
-                correctText = resultContent[i]["correct"]
-                allTestCaseResult = (allTestCaseResult and (correctText == "True"))
-                if correctText == "True":
-                    textResults = textResults + ("\nHurray! You have passed the test case with"
-                                                "status code {statusCode}. {method} call with"
-                                                "{parameter} and received {responseTarget} as" 
-                                                "{receivedValue} against the expected value" 
-                                                "of {testValue}.\n").format(
-                                                    statusCode=statusCode,
-                                                    method=methodText, 
-                                                    parameter=parameterText, 
-                                                    responseTarget=responseTargetText, 
-                                                    receivedValue=receivedValueText,
-                                                    testValue=testValueText)
-                    textBackgroundColor = "#b2d8b2" #Green
-                else:
-                    textResults = textResults + ("\nOh no! Test case failed with" 
-                                                "status code {statusCode}. {method} call with"
-                                                "{parameter} and received {responseTarget} as" 
-                                                "{receivedValue} against the expected value" 
-                                                "of {testValue}.\n").format(
-                                                    statusCode=statusCode,
-                                                    method=methodText, 
-                                                    parameter=parameterText, 
-                                                    responseTarget=responseTargetText, 
-                                                    receivedValue=receivedValueText,
-                                                    testValue=testValueText)
-                    textBackgroundColor = "#ff9999" #Red
-                tableContents = tableContents + """
-                <tr bgcolor={color}>
-                    <td>{method}</td>
-                    <td>{parameter}</td>
-                    <td>{responseTarget}</td>
-                    <td>{testMethod}</td>
-                    <td>{testValue}</td>
-                    <td>{receivedValue}</td>
-                    <td>{statusCode}</td>
-                    <td>{correct}</td>
-                </tr>
-                """.format(method=methodText, parameter=parameterText, 
-                        responseTarget=responseTargetText, testMethod=testMethodText, 
-                        testValue=testValueText, receivedValue=receivedValueText, 
-                        statusCode=statusCode, correct=correctText, 
-                        color=textBackgroundColor)
-            tableContents = """<span class="md-subheading">
-                            All tests passed: {allPassed}</span><br/>""".format(
-                                allPassed=str(allTestCaseResult)) + tableContents
-        textResults = """All tests passed: {allPassed}\n""".format(
-                        allPassed=str(allTestCaseResult)) + textResults
-        if not resultContent:
-            textResults = "Your test is passing but something is incorrect..."
-        htmlResults = """
-            <html>
-                <head>
-                    <meta charset="utf-8">
-                    <meta content="width=device-width,initial-scale=1,minimal-ui" name="viewport">
-                </head>
-                <body>
-                    <div>
-                        <table>
-                             <thead>
-                                <tr>
-                                    <th>Method</th>
-                                    <th>Parameters</th>
-                                    <th>Response Target</th>
-                                    <th>Test Method</th>
-                                    <th>Test Value</th>
-                                    <th>Received Value</th>
-                                    <th>Status Code</th>
-                                    <th>Correct</th>
-                                </tr>
-                            </thead>
-                            <tbody>
-                                {0}
-                            </tbody>
-                        </table>
-                    </div>
-                </body>
-                <style>
-                br {{
-                    display:block;
-                    content:"";
-                    margin:1rem
-                }}
-                table{{
-                    text-align:center
-                }}
-                </style>
-            </html>
-            """.format(tableContents)
+        #Execute editable block
+        jsonResponse = exec_testcases(testCases,testUrl)
+        #Calcucate all types of feedback
+        allFeedback = calcFeedback(jsonResponse)
         return {
             "statusCode": 200,
             "headers": {
@@ -359,8 +362,8 @@ def lambda_handler(event, context):
             },
             "body":  json.dumps({
                 "isComplete":True,
-                "jsonFeedback": json.dumps(jsonResponseData, indent=4, sort_keys=True),
-                "htmlFeedback": htmlResults,
-                "textFeedback": textResults
+                "jsonFeedback": allFeedback["jsonFeedback"],
+                "htmlFeedback": allFeedback["htmlFeedback"],
+                "textFeedback": allFeedback["textFeedback"]
             })
         }
